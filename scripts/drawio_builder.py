@@ -209,6 +209,95 @@ def section_label_style(color: str) -> str:
     )
 
 
+# ── Styles for new diagram types (Swimlane, DFD) ─────────────────────────────
+
+def dfd_external_style(accent: str = "#90A4AE") -> str:
+    """DFD external entity — hard-cornered rectangle, muted by default."""
+    return (
+        f"rounded=0;whiteSpace=wrap;html=1;shadow=1;"
+        f"fillColor={light_fill(accent)};strokeColor={accent};strokeWidth=2;"
+        f"fontColor={PALETTE['body']};fontSize=11;fontStyle=1;"
+    )
+
+
+def dfd_process_style(accent: str) -> str:
+    """DFD process — ellipse (classic Yourdon/DeMarco)."""
+    return (
+        f"ellipse;whiteSpace=wrap;html=1;shadow=1;"
+        f"fillColor={light_fill(accent)};strokeColor={accent};strokeWidth=1.5;"
+        f"fontColor={PALETTE['body']};fontSize=11;"
+    )
+
+
+def dfd_store_style(accent: str) -> str:
+    """DFD data store — open-sided rectangle (top + bottom lines only)."""
+    return (
+        f"shape=partialRectangle;top=1;bottom=1;left=0;right=0;"
+        f"whiteSpace=wrap;html=1;"
+        f"fillColor={light_fill(accent)};strokeColor={accent};strokeWidth=2;"
+        f"fontColor={PALETTE['body']};fontSize=11;fontStyle=1;"
+    )
+
+
+def lane_header_style(accent: str) -> str:
+    """Swimlane lane header — pill shown at the top of each lane column."""
+    return (
+        f"rounded=1;whiteSpace=wrap;html=1;arcSize=8;shadow=1;"
+        f"fillColor={accent};strokeColor=none;"
+        f"fontColor=#FFFFFF;fontSize=13;fontStyle=1;"
+    )
+
+
+def lane_body_style(accent: str) -> str:
+    """Swimlane lane body — tinted dashed column behind the steps."""
+    return (
+        f"rounded=0;whiteSpace=wrap;html=1;"
+        f"fillColor={light_fill(accent)};strokeColor={accent};"
+        f"dashed=1;dashPattern=6 4;strokeWidth=1;opacity=40;"
+    )
+
+
+def swimlane_step_style(accent: str) -> str:
+    """Swimlane step — rounded rectangle inside a lane."""
+    return (
+        f"rounded=1;whiteSpace=wrap;html=1;arcSize=10;shadow=1;"
+        f"fillColor=#FFFFFF;strokeColor={accent};strokeWidth=1.5;"
+        f"fontColor={PALETTE['body']};fontSize=11;fontStyle=1;"
+    )
+
+
+def legend_box_style() -> str:
+    """Legend container — small bordered box shown in a diagram corner."""
+    return (
+        f"rounded=1;whiteSpace=wrap;html=1;arcSize=4;"
+        f"fillColor=#FAFAFA;strokeColor={PALETTE['muted']};strokeWidth=1;"
+        f"verticalAlign=top;align=left;spacingLeft=8;spacingTop=6;"
+        f"fontColor={PALETTE['subtitle']};fontSize=10;fontStyle=1;"
+    )
+
+
+def legend_swatch_style(color: str, shape: str = "rect") -> str:
+    """Legend entry swatch — small pill (node overlay) or edge-stroke (edge overlay)."""
+    if shape == "edge":
+        return (
+            f"rounded=0;whiteSpace=wrap;html=1;"
+            f"fillColor=none;strokeColor={color};strokeWidth=3;"
+        )
+    return (
+        f"rounded=1;whiteSpace=wrap;html=1;arcSize=40;"
+        f"fillColor={color};strokeColor=none;"
+    )
+
+
+def legend_label_style() -> str:
+    """Legend entry label."""
+    return (
+        f"text;html=1;strokeColor=none;fillColor=none;"
+        f"align=left;verticalAlign=middle;"
+        f"fontColor={PALETTE['body']};fontSize=10;"
+    )
+
+
 # ── Cell dataclass ───────────────────────────────────────────────────────────
 
 @dataclass
@@ -255,6 +344,214 @@ class Cell:
             else '<mxGeometry relative="1" as="geometry" />'
         )
         return f"<mxCell {' '.join(attrs)}>{geom}</mxCell>"
+
+
+# ── Overlay framework ────────────────────────────────────────────────────────
+#
+# An overlay encodes a SECOND dimension of information on top of a base
+# diagram. It's not a diagram type — it's a visual transform applied to an
+# already-built Cell list.
+#
+# Overlay spec (top-level `spec["overlay"]` for standalone diagrams, or nested
+# per-scope for scope-level overlays):
+#
+#   {
+#     "dimension": "data_state",    # shown as the legend title
+#     "channel": "color_fill",      # color_fill | edge_style | row_shading |
+#                                   #   badge | opacity
+#     "values": {                   # maps the scope's overlay_value -> visual
+#       "raw":          {"color": "#E0E0E0", "label": "Raw"},
+#       "categorized":  {"color": "#A5D6A7", "label": "Categorized"},
+#       "persisted":    {"color": "#42A5F5", "label": "Persisted"}
+#     }
+#   }
+#
+# Each node / edge carries `overlay_value` that looks up into `values`. Missing
+# values fall through to the base style unchanged — the diagram still renders.
+#
+# Channels:
+#   color_fill   — node fillColor (categorical state, tier, environment, …)
+#   edge_style   — edge strokeColor / dashed / thick (happy-path vs. failure)
+#   row_shading  — horizontal bands behind content (subsystem boundary, env)
+#   badge        — small annotation next to each node (latency, owner, cost)
+#   opacity      — per-node opacity (shipped vs. planned, 100 vs. 40)
+#
+# Cap in the skill: one overlay per page. The builder doesn't enforce it; the
+# skill's Phase 1 guidance does.
+
+def _parse_overlay(overlay_spec: dict[str, Any] | None
+                    ) -> tuple[str, str, dict[str, Any]]:
+    """Normalize an overlay spec. Returns (channel, dimension, values)."""
+    if not overlay_spec:
+        return "", "", {}
+    return (
+        overlay_spec.get("channel", "color_fill"),
+        overlay_spec.get("dimension", ""),
+        overlay_spec.get("values", {}) or {},
+    )
+
+
+def _replace_style_attr(style: str, attr: str, new_value: str) -> str:
+    """Replace `attr=oldvalue` in a drawio style string; append if absent."""
+    prefix = f"{attr}="
+    parts = style.split(";")
+    replaced = False
+    for i, p in enumerate(parts):
+        if p.startswith(prefix):
+            parts[i] = prefix + new_value
+            replaced = True
+            break
+    if not replaced:
+        parts.append(prefix + new_value)
+    return ";".join(x for x in parts if x)
+
+
+def apply_overlay_color_fill(cells: list["Cell"], node_values: dict[str, str],
+                              overlay_spec: dict[str, Any]) -> None:
+    """Mutate node fillColor based on node_id -> overlay_value -> color."""
+    _, _, values = _parse_overlay(overlay_spec)
+    for c in cells:
+        if not c.vertex or c.id not in node_values:
+            continue
+        cfg = values.get(node_values[c.id], {})
+        if cfg.get("color"):
+            c.style = _replace_style_attr(c.style, "fillColor", cfg["color"])
+
+
+def apply_overlay_edge_style(cells: list["Cell"], edge_values: dict[str, str],
+                              overlay_spec: dict[str, Any]) -> None:
+    """Mutate edge style based on edge_id -> overlay_value -> modifiers.
+
+    Supported modifiers: color (strokeColor), dashed (bool), thick (bool).
+    """
+    _, _, values = _parse_overlay(overlay_spec)
+    for c in cells:
+        if not c.edge or c.id not in edge_values:
+            continue
+        cfg = values.get(edge_values[c.id], {})
+        if cfg.get("color"):
+            c.style = _replace_style_attr(c.style, "strokeColor", cfg["color"])
+        if cfg.get("thick"):
+            c.style = _replace_style_attr(c.style, "strokeWidth", "3")
+        if cfg.get("dashed"):
+            c.style = c.style.rstrip(";") + ";dashed=1;dashPattern=6 4;"
+
+
+def apply_overlay_opacity(cells: list["Cell"], node_values: dict[str, str],
+                           overlay_spec: dict[str, Any]) -> None:
+    """Mutate node opacity based on node_id -> overlay_value -> opacity%."""
+    _, _, values = _parse_overlay(overlay_spec)
+    for c in cells:
+        if not c.vertex or c.id not in node_values:
+            continue
+        cfg = values.get(node_values[c.id], {})
+        op = cfg.get("opacity")
+        if op is not None:
+            c.style = c.style.rstrip(";") + f";opacity={op};"
+
+
+def apply_overlay_badge(cells: list["Cell"], node_values: dict[str, Any],
+                         overlay_spec: dict[str, Any]) -> list["Cell"]:
+    """Return extra Cells rendering a small badge at the top-right of each
+    node in node_values.
+
+    Each value looks up into overlay_spec["values"] for {label, color}; if no
+    mapping exists, the value is used as the badge text verbatim.
+    """
+    _, _, values = _parse_overlay(overlay_spec)
+    by_id = {c.id: c for c in cells}
+    extra: list[Cell] = []
+    for node_id, v in node_values.items():
+        n = by_id.get(node_id)
+        if not n:
+            continue
+        cfg = values.get(v, {}) if isinstance(v, str) else {}
+        badge_text = cfg.get("label") if cfg.get("label") else str(v)
+        badge_color = cfg.get("color", "#666666")
+        extra.append(Cell(
+            id=f"{node_id}-ov-badge",
+            value=esc(badge_text),
+            style=(
+                f"rounded=1;whiteSpace=wrap;html=1;arcSize=40;shadow=1;"
+                f"fillColor={badge_color};strokeColor=none;"
+                f"fontColor=#FFFFFF;fontSize=9;fontStyle=1;"
+                f"spacingLeft=4;spacingRight=4;"
+            ),
+            parent=n.parent,
+            vertex=True,
+            x=n.x + max(0, n.w - 50),
+            y=max(0, n.y - 10),
+            w=48, h=18,
+        ))
+    return extra
+
+
+def apply_overlay_row_shading(row_bands: list[dict[str, Any]],
+                               overlay_spec: dict[str, Any], *,
+                               page_w: int, parent: str = "1"
+                               ) -> list["Cell"]:
+    """Return Cells rendering horizontal shaded bands that group content by
+    overlay_value.
+
+    row_bands: list of {"y": int, "h": int, "value": str, "label": str?}
+    Colors come from overlay_spec["values"][value]["color"].
+    """
+    _, _, values = _parse_overlay(overlay_spec)
+    extra: list[Cell] = []
+    for i, band in enumerate(row_bands):
+        v = band.get("value", "")
+        color = values.get(v, {}).get("color", "#F5F5F5")
+        extra.append(Cell(
+            id=f"ov-band-{i}-{v}", value="",
+            style=(
+                f"rounded=0;whiteSpace=wrap;html=1;"
+                f"fillColor={color};strokeColor=none;opacity=22;"
+            ),
+            parent=parent, vertex=True,
+            x=0, y=band["y"], w=page_w, h=band["h"],
+        ))
+    return extra
+
+
+def build_legend(overlay_spec: dict[str, Any], *, x: int, y: int,
+                  parent: str = "1") -> list["Cell"]:
+    """Render a small legend box explaining an overlay.
+
+    Always include a legend when an overlay is applied — an unexplained color
+    coding is noise, not signal.
+    """
+    channel, dimension, values = _parse_overlay(overlay_spec)
+    if not values:
+        return []
+    cells: list[Cell] = []
+    title = dimension or "Overlay"
+    entry_h = 18
+    box_h = 28 + len(values) * entry_h + 10
+    box_w = 220
+    box_id = f"legend-{stable_id('lg', f'{title}-{channel}')}"
+    cells.append(Cell(
+        id=box_id, value=f"<b>{esc(title)}</b>",
+        style=legend_box_style(), parent=parent, vertex=True,
+        x=x, y=y, w=box_w, h=box_h,
+    ))
+    swatch_shape = "edge" if channel == "edge_style" else "rect"
+    for i, (v, cfg) in enumerate(values.items()):
+        label = cfg.get("label") or v
+        color = cfg.get("color", "#BDBDBD")
+        entry_y = 24 + i * entry_h
+        cells.append(Cell(
+            id=f"{box_id}-sw-{i}", value="",
+            style=legend_swatch_style(color, swatch_shape),
+            parent=box_id, vertex=True,
+            x=10, y=entry_y, w=22, h=12,
+        ))
+        cells.append(Cell(
+            id=f"{box_id}-lbl-{i}", value=esc(label),
+            style=legend_label_style(),
+            parent=box_id, vertex=True,
+            x=38, y=entry_y - 2, w=170, h=16,
+        ))
+    return cells
 
 
 # ── Renderers ────────────────────────────────────────────────────────────────
@@ -1008,16 +1305,328 @@ def build_journey(spec: dict[str, Any]) -> str:
 
 # ── main() ──────────────────────────────────────────────────────────────────
 
+# ── Builder: SWIMLANE (single-page) ──────────────────────────────────────────
+
+def build_swimlane(spec: dict[str, Any]) -> str:
+    """Vertical-lane Swimlane Flowchart.
+
+    Each lane is a column with a header pill at the top; time flows
+    top-to-bottom. Steps live inside their owning lane by `lane` id; `order`
+    determines vertical position. Handoffs connect steps across lanes —
+    drawio's orthogonal routing makes cross-lane edges visually obvious as
+    handoffs, which is the whole point of the diagram.
+
+    Spec schema:
+      {
+        "title": "...", "subtitle": "...",
+        "lanes": [{"id": "...", "label": "...", "accent": "#..."}],
+        "steps": [
+          {"id": "...", "lane": "lane-id", "label": "...", "order": int,
+           "detail": "...", "tooltip": "...", "overlay_value": "..."}
+        ],
+        "handoffs": [
+          {"from": "step-id", "to": "step-id", "label": "...",
+           "overlay_value": "..."}
+        ],
+        "overlay": {...}  // optional — see overlay framework
+      }
+
+    The overlay can use any of the 5 channels; row_shading expects a
+    top-level "row_bands" list on the overlay itself.
+    """
+    cells: list[Cell] = []
+    lanes = spec.get("lanes", [])
+    steps = spec.get("steps", [])
+    handoffs = spec.get("handoffs", [])
+
+    page_w = 1600
+    left_margin = 40
+    top_margin = 96
+    lane_header_h = 44
+    lane_gap = 16
+    body_start = top_margin + lane_header_h + 16
+    step_h = 56
+    step_gap = 84
+    lane_inner_pad = 14
+
+    if not lanes:
+        cells.append(Cell(
+            id="err", value=esc("Swimlane spec is missing 'lanes'."),
+            style=header_style(), parent="1", vertex=True,
+            x=40, y=40, w=900, h=40,
+        ))
+        return render_mxfile(cells, name="Swimlane", page_w=1000, page_h=120)
+
+    num_lanes = len(lanes)
+    lane_w = max(
+        200,
+        (page_w - 2 * left_margin - (num_lanes - 1) * lane_gap) // num_lanes,
+    )
+
+    # Header band
+    cells.append(Cell(
+        id="hdr-title", value=esc(spec.get("title", "Swimlane")),
+        style=header_style(), parent="1", vertex=True,
+        x=left_margin, y=20, w=page_w - 2 * left_margin, h=32,
+    ))
+    if spec.get("subtitle"):
+        cells.append(Cell(
+            id="hdr-sub", value=esc(spec["subtitle"]),
+            style=subtitle_style(), parent="1", vertex=True,
+            x=left_margin, y=54, w=page_w - 2 * left_margin, h=22,
+        ))
+
+    # Body height from max step order
+    max_order = max((int(s.get("order", 1)) for s in steps), default=1)
+    body_h = max(step_gap, max_order * step_gap + 40)
+    page_h = body_start + body_h + 48
+
+    # Lane columns
+    lane_x: dict[str, int] = {}
+    lane_accent: dict[str, str] = {}
+    for i, lane in enumerate(lanes):
+        x = left_margin + i * (lane_w + lane_gap)
+        lane_id = lane.get("id") or f"lane{i}"
+        accent = lane.get("accent", "#90A4AE")
+        lane_x[lane_id] = x
+        lane_accent[lane_id] = accent
+        cells.append(Cell(
+            id=f"lane-hdr-{lane_id}",
+            value=esc(lane.get("label", lane_id)),
+            style=lane_header_style(accent),
+            parent="1", vertex=True,
+            x=x, y=top_margin, w=lane_w, h=lane_header_h,
+        ))
+        cells.append(Cell(
+            id=f"lane-body-{lane_id}",
+            value="",
+            style=lane_body_style(accent),
+            parent="1", vertex=True,
+            x=x, y=body_start, w=lane_w, h=body_h,
+        ))
+
+    # Steps
+    node_overlay_values: dict[str, str] = {}
+    step_lane: dict[str, str] = {}
+    for step in steps:
+        sid = step.get("id")
+        lane_id = step.get("lane")
+        if not sid or lane_id not in lane_x:
+            continue
+        order = int(step.get("order", 1))
+        x = lane_x[lane_id] + lane_inner_pad
+        w = lane_w - 2 * lane_inner_pad
+        y = body_start + (order - 1) * step_gap + 14
+        detail = step.get("detail") or None
+        cells.append(Cell(
+            id=sid,
+            value=html_label(step.get("label", sid), detail),
+            style=swimlane_step_style(lane_accent[lane_id]),
+            parent="1", vertex=True,
+            x=x, y=y, w=w, h=step_h,
+            tooltip=step.get("tooltip") or None,
+        ))
+        step_lane[sid] = lane_id
+        if "overlay_value" in step:
+            node_overlay_values[sid] = step["overlay_value"]
+
+    # Handoffs
+    edge_overlay_values: dict[str, str] = {}
+    for ho in handoffs:
+        src = ho.get("from")
+        tgt = ho.get("to")
+        if src not in step_lane or tgt not in step_lane:
+            continue
+        color = lane_accent.get(step_lane[src], PALETTE["edge"])
+        eid = stable_id("ho", f"{src}->{tgt}:{ho.get('label', '')}")
+        cells.append(Cell(
+            id=eid, value=esc(ho.get("label", "")),
+            style=edge_style(color),
+            parent="1", edge=True,
+            source=src, target=tgt,
+        ))
+        if "overlay_value" in ho:
+            edge_overlay_values[eid] = ho["overlay_value"]
+
+    # Overlay
+    overlay = spec.get("overlay")
+    if overlay:
+        channel = overlay.get("channel", "color_fill")
+        if channel == "color_fill":
+            apply_overlay_color_fill(cells, node_overlay_values, overlay)
+        elif channel == "edge_style":
+            apply_overlay_edge_style(cells, edge_overlay_values, overlay)
+        elif channel == "opacity":
+            apply_overlay_opacity(cells, node_overlay_values, overlay)
+        elif channel == "badge":
+            cells.extend(apply_overlay_badge(cells, node_overlay_values,
+                                               overlay))
+        elif channel == "row_shading":
+            bands = overlay.get("row_bands", [])
+            band_cells = apply_overlay_row_shading(bands, overlay,
+                                                     page_w=page_w)
+            # Prepend so bands render behind everything else
+            cells = band_cells + cells
+        cells.extend(build_legend(overlay, x=page_w - 240,
+                                    y=top_margin - 4))
+
+    return render_mxfile(cells, name="Swimlane", page_w=page_w, page_h=page_h)
+
+
+# ── Builder: DFD (single-page) ───────────────────────────────────────────────
+
+def build_dfd(spec: dict[str, Any]) -> str:
+    """Data Flow Diagram — externals / processes / stores in three columns,
+    connected by labeled flow arrows.
+
+    Conventions (classic Yourdon/DeMarco):
+      - External entity → rectangle (hard corners)
+      - Process         → ellipse
+      - Data store      → open-sided rectangle (top + bottom lines only)
+      - Data flow       → labeled arrow
+
+    Spec schema:
+      {
+        "title": "...", "subtitle": "...",
+        "externals":  [{"id": "...", "label": "...", "detail": "...",
+                        "overlay_value": "..."}],
+        "processes":  [{"id": "...", "label": "...", "accent": "#...",
+                        "detail": "...", "overlay_value": "..."}],
+        "stores":     [{"id": "...", "label": "...", "overlay_value": "..."}],
+        "flows":      [{"from": "...", "to": "...", "label": "...",
+                        "overlay_value": "..."}],
+        "overlay": {...}  // optional
+      }
+    """
+    cells: list[Cell] = []
+    externals = spec.get("externals", [])
+    processes = spec.get("processes", [])
+    stores = spec.get("stores", [])
+    flows = spec.get("flows", [])
+
+    page_w = 1600
+    left_margin = 60
+    top_margin = 96
+    col_w = 280
+    col_gap = 180
+    node_h = 64
+    node_gap = 28
+
+    cells.append(Cell(
+        id="hdr-title", value=esc(spec.get("title", "Data Flow Diagram")),
+        style=header_style(), parent="1", vertex=True,
+        x=left_margin, y=20, w=page_w - 2 * left_margin, h=32,
+    ))
+    if spec.get("subtitle"):
+        cells.append(Cell(
+            id="hdr-sub", value=esc(spec["subtitle"]),
+            style=subtitle_style(), parent="1", vertex=True,
+            x=left_margin, y=54, w=page_w - 2 * left_margin, h=22,
+        ))
+
+    col_ext_x = left_margin
+    col_proc_x = col_ext_x + col_w + col_gap
+    col_store_x = col_proc_x + col_w + col_gap
+
+    def lay_column(items: list[dict[str, Any]], x: int, style_fn,
+                    default_accent: str) -> int:
+        y = top_margin
+        for item in items:
+            iid = item.get("id")
+            if not iid:
+                continue
+            accent = item.get("accent", default_accent)
+            label = item.get("label", iid)
+            detail = item.get("detail") or None
+            cells.append(Cell(
+                id=iid,
+                value=html_label(label, detail),
+                style=style_fn(accent),
+                parent="1", vertex=True,
+                x=x, y=y, w=col_w, h=node_h,
+            ))
+            y += node_h + node_gap
+        return y
+
+    y_ext = lay_column(externals, col_ext_x, dfd_external_style, "#90A4AE")
+    y_proc = lay_column(processes, col_proc_x, dfd_process_style, "#89B4FA")
+    y_store = lay_column(stores, col_store_x, dfd_store_style, "#FFB74D")
+    max_y = max(y_ext, y_proc, y_store)
+
+    all_ids = {it.get("id") for it in externals + processes + stores
+                 if it.get("id")}
+
+    # Flows
+    edge_overlay_values: dict[str, str] = {}
+    for flow in flows:
+        src = flow.get("from")
+        tgt = flow.get("to")
+        if src not in all_ids or tgt not in all_ids:
+            continue
+        eid = stable_id("fl", f"{src}->{tgt}:{flow.get('label', '')}")
+        cells.append(Cell(
+            id=eid, value=esc(flow.get("label", "")),
+            style=edge_style(),
+            parent="1", edge=True,
+            source=src, target=tgt,
+        ))
+        if "overlay_value" in flow:
+            edge_overlay_values[eid] = flow["overlay_value"]
+
+    # Overlay
+    node_overlay_values: dict[str, str] = {}
+    for item in externals + processes + stores:
+        if "overlay_value" in item and item.get("id"):
+            node_overlay_values[item["id"]] = item["overlay_value"]
+
+    overlay = spec.get("overlay")
+    if overlay:
+        channel = overlay.get("channel", "color_fill")
+        if channel == "color_fill":
+            apply_overlay_color_fill(cells, node_overlay_values, overlay)
+        elif channel == "edge_style":
+            apply_overlay_edge_style(cells, edge_overlay_values, overlay)
+        elif channel == "opacity":
+            apply_overlay_opacity(cells, node_overlay_values, overlay)
+        elif channel == "badge":
+            cells.extend(apply_overlay_badge(cells, node_overlay_values,
+                                               overlay))
+        cells.extend(build_legend(overlay, x=page_w - 240, y=top_margin))
+
+    page_h = max_y + 60
+    return render_mxfile(cells, name="Data Flow Diagram", page_w=page_w,
+                          page_h=page_h)
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────────
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", help="Path to spec JSON (default: stdin)")
-    ap.add_argument("--out-portfolio", required=True)
-    ap.add_argument("--out-detailed", required=True)
+    ap.add_argument("--out-portfolio",
+                     help="Single-page System Flowchart poster.")
+    ap.add_argument("--out-detailed",
+                     help="Multi-page drill-down (System Flowchart / "
+                          "Workflow Diagram).")
     ap.add_argument(
         "--out-journey",
         help=(
-            "Optional third diagram: single-page user-flow journey for "
-            "non-technical audiences. Requires 'user_flow' in spec."
+            "Single-page user-flow journey (Process Flowchart approximation). "
+            "Requires 'user_flow' in spec."
+        ),
+    )
+    ap.add_argument(
+        "--out-swimlane",
+        help=(
+            "Single-page Swimlane Flowchart. Requires 'lanes' + 'steps' "
+            "in spec; handoffs + overlay optional."
+        ),
+    )
+    ap.add_argument(
+        "--out-dfd",
+        help=(
+            "Single-page Data Flow Diagram. Requires 'externals' + "
+            "'processes' + 'stores' + 'flows' in spec; overlay optional."
         ),
     )
     args = ap.parse_args()
@@ -1033,21 +1642,28 @@ def main() -> int:
         if ln not in LAYER_SHORT:
             LAYER_SHORT[ln] = ln[:2]
 
-    portfolio_xml = build_portfolio(spec)
-    detailed_xml = build_detailed(spec)
+    emitted = 0
 
-    Path(args.out_portfolio).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out_portfolio).write_text(portfolio_xml, encoding="utf-8")
-    Path(args.out_detailed).write_text(detailed_xml, encoding="utf-8")
+    def emit(out_path: str | None, builder, label: str) -> None:
+        nonlocal emitted
+        if not out_path:
+            return
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(out_path).write_text(builder(spec), encoding="utf-8")
+        print(f"{label:<10} {out_path}")
+        emitted += 1
 
-    print(f"portfolio: {args.out_portfolio}")
-    print(f"detailed:  {args.out_detailed}")
+    emit(args.out_portfolio, build_portfolio, "portfolio:")
+    emit(args.out_detailed, build_detailed, "detailed:")
+    emit(args.out_journey, build_journey, "journey:")
+    emit(args.out_swimlane, build_swimlane, "swimlane:")
+    emit(args.out_dfd, build_dfd, "dfd:")
 
-    if args.out_journey:
-        journey_xml = build_journey(spec)
-        Path(args.out_journey).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out_journey).write_text(journey_xml, encoding="utf-8")
-        print(f"journey:   {args.out_journey}")
+    if emitted == 0:
+        print("No output flags supplied. Pass one or more of --out-portfolio, "
+              "--out-detailed, --out-journey, --out-swimlane, --out-dfd.",
+              file=sys.stderr)
+        return 2
 
     return 0
 
