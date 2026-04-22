@@ -218,7 +218,7 @@ def dfd_external_style(accent: str = "#90A4AE") -> str:
     return (
         f"rounded=0;whiteSpace=wrap;html=1;shadow=1;"
         f"fillColor={light_fill(accent)};strokeColor={accent};strokeWidth=2;"
-        f"fontColor={PALETTE['body']};fontSize=11;fontStyle=1;"
+        f"fontColor={PALETTE['body']};fontSize=13;fontStyle=1;"
     )
 
 
@@ -227,7 +227,7 @@ def dfd_process_style(accent: str) -> str:
     return (
         f"ellipse;whiteSpace=wrap;html=1;shadow=1;"
         f"fillColor={light_fill(accent)};strokeColor={accent};strokeWidth=1.5;"
-        f"fontColor={PALETTE['body']};fontSize=11;"
+        f"fontColor={PALETTE['body']};fontSize=13;"
     )
 
 
@@ -237,7 +237,7 @@ def dfd_store_style(accent: str) -> str:
         f"shape=partialRectangle;top=1;bottom=1;left=0;right=0;"
         f"whiteSpace=wrap;html=1;"
         f"fillColor={light_fill(accent)};strokeColor={accent};strokeWidth=2;"
-        f"fontColor={PALETTE['body']};fontSize=11;fontStyle=1;"
+        f"fontColor={PALETTE['body']};fontSize=13;fontStyle=1;"
     )
 
 
@@ -862,16 +862,15 @@ def build_detailed_overview(
                 f"{grp_id}-teaser",
                 node.get("id") or node.get("label", str(i)),
             )
+            teaser_sub = node.get("file_path") or node.get("detail")
             cells.append(Cell(
                 id=tid,
-                value=html_label(
-                    node.get("label", "?"),
-                    node.get("file_path") or node.get("detail"),
-                ),
+                value=html_label(node.get("label", "?")),
                 style=node_style(accent),
                 parent=grp_id, vertex=True,
                 x=14 + i * (teaser_w + teaser_gap),
                 y=teaser_y, w=teaser_w, h=teaser_h,
+                tooltip=teaser_sub,
             ))
 
         if node_count > 3:
@@ -1013,10 +1012,7 @@ def build_layer_detail(
         tooltip = node.get("detail") or node.get("file_path") or ""
         cells.append(Cell(
             id=nid,
-            value=html_label(
-                node.get("label", node.get("id", "?")),
-                node.get("file_path") or node.get("detail"),
-            ),
+            value=html_label(node.get("label", node.get("id", "?"))),
             style=node_style(accent),
             parent=grp_id, vertex=True,
             x=start_x + col * (node_w + gap_x),
@@ -1281,7 +1277,7 @@ def build_journey(spec: dict[str, Any]) -> str:
 
         cells.append(Cell(
             id=sid,
-            value=html_label(step["label"], step.get("detail")),
+            value=html_label(step["label"]),
             style=node_style(accent),
             parent="1", vertex=True,
             x=bx, y=y, w=bw, h=box_h,
@@ -1420,13 +1416,18 @@ def build_swimlane(spec: dict[str, Any]) -> str:
         w = lane_w - 2 * lane_inner_pad
         y = body_start + (order - 1) * step_gap + 14
         detail = step.get("detail") or None
+        # Merge detail into tooltip (hover-only) so the step box stays clean.
+        existing_tooltip = step.get("tooltip") or None
+        merged_tooltip = "\n\n".join(
+            t for t in (detail, existing_tooltip) if t
+        ) or None
         cells.append(Cell(
             id=sid,
-            value=html_label(step.get("label", sid), detail),
+            value=html_label(step.get("label", sid)),
             style=swimlane_step_style(lane_accent[lane_id]),
             parent="1", vertex=True,
             x=x, y=y, w=w, h=step_h,
-            tooltip=step.get("tooltip") or None,
+            tooltip=merged_tooltip,
         ))
         step_lane[sid] = lane_id
         if "overlay_value" in step:
@@ -1506,13 +1507,13 @@ def build_dfd(spec: dict[str, Any]) -> str:
     stores = spec.get("stores", [])
     flows = spec.get("flows", [])
 
-    page_w = 1600
+    page_w = 1800
     left_margin = 60
-    top_margin = 96
-    col_w = 280
-    col_gap = 180
-    node_h = 64
-    node_gap = 28
+    top_margin = 112
+    col_w = 340
+    col_gap = 240
+    node_h = 82
+    node_gap = 44
 
     cells.append(Cell(
         id="hdr-title", value=esc(spec.get("title", "Data Flow Diagram")),
@@ -1539,13 +1540,17 @@ def build_dfd(spec: dict[str, Any]) -> str:
                 continue
             accent = item.get("accent", default_accent)
             label = item.get("label", iid)
+            # DFD idiom: terse node labels. Detail lives in the mxCell tooltip
+            # attribute so drawio shows it on hover — keeps nodes uncluttered
+            # while preserving the info.
             detail = item.get("detail") or None
             cells.append(Cell(
                 id=iid,
-                value=html_label(label, detail),
+                value=html_label(label),
                 style=style_fn(accent),
                 parent="1", vertex=True,
                 x=x, y=y, w=col_w, h=node_h,
+                tooltip=detail,
             ))
             y += node_h + node_gap
         return y
