@@ -622,6 +622,7 @@ def build_portfolio_phased(
     """Portfolio with 3-level hierarchy: Overview → Phase → Step detail."""
     overview_page_id = "portfolio-overview"
     step_by_id = {step["id"]: step for step in flow}
+    app_name = spec.get("title", "the app")
 
     pages: list[tuple[list[Cell], str, str, int, int]] = [
         build_flow_overview(spec, phases, step_by_id, overview_page_id)
@@ -634,7 +635,7 @@ def build_portfolio_phased(
             next_step = steps[i + 1] if i + 1 < len(steps) else None
             pages.append(
                 build_step_page(step, i + 1, len(steps), next_step, phase["id"],
-                                back_label=f"← {phase['label']}")
+                                back_label=f"← {phase['label']}", app_name=app_name)
             )
 
     return render_mxfile_paged(pages)
@@ -696,9 +697,10 @@ def build_portfolio_flow(spec: dict[str, Any]) -> str:
     ))
 
     # Legend pills
+    app_name = spec.get("title", "the app")
     for i, (lbl, color) in enumerate([
         ("What you do", USER_COLOR),
-        ("What HuminLoop does", APP_COLOR),
+        (f"What {app_name} does", APP_COLOR),
     ]):
         pill_w = max(120, 10 + 9 * len(lbl))
         cells.append(Cell(
@@ -774,15 +776,27 @@ def build_portfolio_flow(spec: dict[str, Any]) -> str:
     ]
     for i, step in enumerate(flow):
         next_step = flow[i + 1] if i + 1 < len(flow) else None
-        pages.append(build_step_page(step, i + 1, len(flow), next_step, main_page_id))
+        pages.append(build_step_page(step, i + 1, len(flow), next_step, main_page_id, app_name=app_name))
 
     return render_mxfile_paged(pages)
 
 
+def build_journey(spec: dict[str, Any]) -> str:
+    """Journey diagram — multi-page interactive user flow.
+
+    Designed for non-technical audiences (recruiters, family, end users).
+    Pure user journey, zero backend jargon. Requires `phases` and/or
+    `user_flow` in spec.
+    """
+    if not spec.get("user_flow") and not spec.get("phases"):
+        raise ValueError(
+            "build_journey requires 'user_flow' or 'phases' in spec"
+        )
+    return build_portfolio_flow(spec)
+
+
 def build_portfolio(spec: dict[str, Any]) -> str:
     """Portfolio diagram — capability pills + tech badges, spacious."""
-    if spec.get("user_flow"):
-        return build_portfolio_flow(spec)
     cells: list[Cell] = []
     layers = spec.get("layers", [])
 
@@ -1160,6 +1174,7 @@ def build_step_page(
     next_step: dict | None,
     main_page_id: str,
     back_label: str = "← Overview",
+    app_name: str = "the app",
 ) -> tuple[list[Cell], str, str, int, int]:
     """Build one detail page for a flow step.
 
@@ -1170,7 +1185,7 @@ def build_step_page(
 
     actor        = step.get("actor", "user")
     accent       = USER_COLOR if actor == "user" else APP_COLOR
-    actor_label  = "YOU DO THIS" if actor == "user" else "HUMINLOOP DOES THIS"
+    actor_label  = "YOU DO THIS" if actor == "user" else f"{app_name.upper()} DOES THIS"
 
     page_w = 1100
     box_w  = 920
@@ -1379,6 +1394,13 @@ def main() -> int:
     ap.add_argument("--spec", help="Path to spec JSON (default: stdin)")
     ap.add_argument("--out-portfolio", required=True)
     ap.add_argument("--out-detailed", required=True)
+    ap.add_argument(
+        "--out-journey",
+        help=(
+            "Optional third diagram: multi-page interactive user journey for "
+            "non-technical audiences. Requires 'phases' and/or 'user_flow' in spec."
+        ),
+    )
     args = ap.parse_args()
 
     if args.spec:
@@ -1402,6 +1424,13 @@ def main() -> int:
 
     print(f"portfolio: {args.out_portfolio}")
     print(f"detailed:  {args.out_detailed}")
+
+    if args.out_journey:
+        journey_xml = build_journey(spec)
+        Path(args.out_journey).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out_journey).write_text(journey_xml, encoding="utf-8")
+        print(f"journey:   {args.out_journey}")
+
     return 0
 
 

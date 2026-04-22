@@ -5,12 +5,13 @@ description: Generates and maintains two attractive dark-themed draw.io architec
 
 # Daemonstrate
 
-Produces two dark-themed, swimlane-structured `.drawio` diagrams for the **target repo** (resolved below). By default they live under `docs/` in the target repo:
+Produces two (or three) dark-themed `.drawio` diagrams for the **target repo** (resolved below). By default they live under `docs/` in the target repo:
 
 - **`docs/architecture-portfolio.drawio`** — scannable in 10 seconds. For recruiters, portfolios, and "what does this project do" introductions. Shows layers, tech stack badges, headline capabilities.
 - **`docs/architecture-detailed.drawio`** — complete enough that a returning collaborator (or AI) can orient without reading the whole codebase. Shows routes, services, tables, jobs, integrations, data flows.
+- **`docs/architecture-journey.drawio`** *(optional, opt-in)* — a multi-page interactive user journey for **non-technical** audiences (think: family, recruiters who don't read code, end users). Pure user flow, zero backend jargon, with overview → phase → step-detail navigation. Generated only when the spec includes a `phases` and/or `user_flow` section *and* the builder is run with `--out-journey`.
 
-Both use the same swimlane skeleton so a reader can move between them without getting lost.
+The portfolio + detailed pair share a swimlane/group skeleton so a reader can move between them without getting lost. The journey diagram is its own modality — a fluid storyboard that complements (not replaces) the structural diagrams.
 
 ## Path resolution
 
@@ -138,8 +139,43 @@ Run the builder (resolve the script path from `$SKILL_DIR`, not a hardcoded abso
 python "$SKILL_DIR/scripts/drawio_builder.py" \
   --spec graph-spec.json \
   --out-portfolio "$OUT_DIR/architecture-portfolio.drawio" \
-  --out-detailed "$OUT_DIR/architecture-detailed.drawio"
+  --out-detailed "$OUT_DIR/architecture-detailed.drawio" \
+  [--out-journey "$OUT_DIR/architecture-journey.drawio"]
 ```
+
+`--out-journey` is opt-in. Add it (and a `phases` + `user_flow` section to the spec — see below) when the user asks for a non-technical, "show my grandma" or "recruiter-first" walkthrough.
+
+#### Journey spec (when `--out-journey` is used)
+
+Add two top-level keys to `graph-spec.json` alongside `layers`:
+
+```json
+{
+  "title": "...",
+  "subtitle": "...",
+  "layers": [...],
+
+  "phases": [
+    { "id": "build",   "label": "Build your story",  "accent": "#89B4FA", "tagline": "Tell us about you", "step_ids": ["s1","s2","s3"] },
+    { "id": "tailor",  "label": "Tailor for a job",  "accent": "#A6E3A1", "tagline": "Match your story to the role", "step_ids": ["s4","s5","s6"] }
+  ],
+  "user_flow": [
+    {
+      "id": "s1",
+      "actor": "user",
+      "label": "Sign in",
+      "detail": "Google or email — takes 10 seconds",
+      "description": "Friendly 1–3 sentence explanation of what happens on this step.",
+      "what_you_see": "A short sentence describing the visual cue (button, screen, animation).",
+      "tips": ["Optional plain-language tip 1", "Optional tip 2"]
+    }
+  ]
+}
+```
+
+- `phases` (optional but strongly recommended for ≥5 steps): groups steps into 2–4 chapters with their own accent color, and produces a 3-level hierarchy (Overview → Phase page → Step detail). Each phase's `step_ids` references entries in `user_flow`.
+- `user_flow`: ordered list of steps. `actor` is `"user"` or `"app"` (controls header color and label — `YOU DO THIS` vs `<TITLE> DOES THIS`). Keep `label` ≤4 words; the rich content lives in `description`, `what_you_see`, and `tips`.
+- Use the layer accent palette (`dark-theme-palette.md`) so phase colors echo the layers they touch.
 
 Resolve the Python binary portably:
 - Unix/macOS: `command -v python3 || command -v python`
