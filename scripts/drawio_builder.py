@@ -20,10 +20,12 @@ Why a script instead of hand-writing XML in the skill:
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import html
 import json
 import math
+import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -1600,6 +1602,164 @@ def build_dfd(spec: dict[str, Any]) -> str:
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
+# ── Paired Technical / Plain-English tab emission ───────────────────────────
+#
+# Every rendered `.drawio` file should carry two pages per logical page:
+# one with the technical labels, one with the plain-English labels. The
+# feature is opt-in via the presence of `plain_*` fields in the spec, so
+# specs without them render single-tab (current behavior, zero surprise).
+
+
+def _has_plain_labels(spec: dict[str, Any]) -> bool:
+    """Does the spec have any populated plain_* fields worth rendering?"""
+    if spec.get("plain_title") or spec.get("plain_subtitle"):
+        return True
+    for layer in list(spec.get("layers", [])) + list(spec.get("scopes", [])):
+        if layer.get("plain_display_name") or layer.get("plain_capabilities"):
+            return True
+        for node in layer.get("key_nodes", []):
+            if node.get("plain_label") or node.get("plain_detail"):
+                return True
+        edges = list(layer.get("internal_edges", [])) + list(layer.get("external_edges", []))
+        if any(e.get("plain_label") for e in edges):
+            return True
+    for group_key in ("externals", "processes", "stores", "user_flow", "steps", "lanes"):
+        for item in spec.get(group_key, []):
+            if item.get("plain_label") or item.get("plain_detail"):
+                return True
+    for flow in spec.get("flows", []):
+        if flow.get("plain_label"):
+            return True
+    return False
+
+
+def _to_plain_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    """Deep-copy the spec and swap technical fields for plain-English ones.
+
+    Hides tech badges and file-path subtitles so the Plain-English tab stays
+    free of stack vocabulary. Leaves the structural geometry untouched — the
+    builder still produces an identical layout, just with different text."""
+    p = copy.deepcopy(spec)
+
+    def swap(obj: dict[str, Any], tech_key: str, plain_key: str) -> None:
+        if obj.get(plain_key):
+            obj[tech_key] = obj[plain_key]
+
+    swap(p, "title", "plain_title")
+    swap(p, "subtitle", "plain_subtitle")
+
+    all_layers = list(p.get("layers", [])) + list(p.get("scopes", []))
+    for layer in all_layers:
+        swap(layer, "display_name", "plain_display_name")
+        if layer.get("plain_capabilities"):
+            layer["capabilities"] = layer["plain_capabilities"]
+        # Hide tech-stack vocabulary from the plain tab.
+        layer["tech_badges"] = []
+        for node in layer.get("key_nodes", []):
+            swap(node, "label", "plain_label")
+            swap(node, "detail", "plain_detail")
+            # Empty file_path suppresses the subtitle line under the label.
+            node["file_path"] = ""
+        for edge in layer.get("internal_edges", []):
+            swap(edge, "label", "plain_label")
+        for edge in layer.get("external_edges", []):
+            swap(edge, "label", "plain_label")
+
+    for group_key in ("externals", "processes", "stores"):
+        for item in p.get(group_key, []):
+            swap(item, "label", "plain_label")
+            swap(item, "detail", "plain_detail")
+    for flow in p.get("flows", []):
+        swap(flow, "label", "plain_label")
+
+    for step in p.get("user_flow", []):
+        swap(step, "label", "plain_label")
+        swap(step, "detail", "plain_detail")
+    for step in p.get("steps", []):
+        swap(step, "label", "plain_label")
+        swap(step, "detail", "plain_detail")
+    for lane in p.get("lanes", []):
+        swap(lane, "label", "plain_label")
+
+    return p
+
+
+_DIAGRAM_RE = re.compile(r'<diagram\b[^>]*>.*?</diagram>', re.DOTALL)
+
+
+def _extract_diagrams(mxfile_xml: str) -> list[str]:
+    """Pull every <diagram>…</diagram> block out of a rendered mxfile."""
+    return _DIAGRAM_RE.findall(mxfile_xml)
+
+
+def _rename_diagram(diagram_xml: str, suffix: str, id_prefix: str) -> str:
+    """Append `suffix` to the diagram's name and prefix its id.
+
+    The id prefix is what prevents two paired diagrams from colliding when
+    they land inside the same mxfile. Cell ids inside the diagram stay
+    identical across the pair — drawio treats each page's root independently,
+    so identical cell ids across pages cause no conflict and actually help a
+    reader visually anchor on the same spatial layout when switching tabs."""
+    def _name_sub(m: re.Match) -> str:
+        return f'name="{m.group(1)}{suffix}"'
+
+    diagram_xml = re.sub(r'name="([^"]*)"', _name_sub, diagram_xml, count=1)
+
+    def _id_sub(m: re.Match) -> str:
+        return f'id="{id_prefix}{m.group(1)}"'
+
+    # Only the first id= inside the opening <diagram ...> tag — not any
+    # mxCell id= later in the body.
+    open_tag_match = re.match(r'<diagram\b[^>]*>', diagram_xml)
+    if open_tag_match:
+        open_tag = open_tag_match.group(0)
+        new_open_tag = re.sub(r'\bid="([^"]*)"', _id_sub, open_tag, count=1)
+        diagram_xml = new_open_tag + diagram_xml[len(open_tag):]
+    return diagram_xml
+
+
+def _interleave_pairs(first: list[str], second: list[str]) -> list[str]:
+    """Zip two same-length lists into [f0, s0, f1, s1, …] so paired tabs sit
+    next to each other in the tab bar. Falls back gracefully on length
+    mismatch, though in practice both builds produce the same page count."""
+    result: list[str] = []
+    for a, b in zip(first, second):
+        result.extend((a, b))
+    if len(first) != len(second):
+        longer = first if len(first) > len(second) else second
+        result.extend(longer[min(len(first), len(second)):])
+    return result
+
+
+def _combine_paired_mxfiles(
+    tech_xml: str,
+    plain_xml: str,
+    audience_first: str,
+) -> str:
+    """Stitch two rendered mxfiles into one combined mxfile.
+
+    `audience_first` is either "technical" (default for whole-repo diagrams)
+    or "plain" (default for drill-down diagrams, where the reader is usually
+    here to learn). Whichever tab comes first becomes the default page when
+    the file opens in drawio."""
+    tech_pages = [_rename_diagram(d, " (T)", "t-") for d in _extract_diagrams(tech_xml)]
+    plain_pages = [_rename_diagram(d, " (P)", "p-") for d in _extract_diagrams(plain_xml)]
+
+    if audience_first == "plain":
+        ordered = _interleave_pairs(plain_pages, tech_pages)
+    else:
+        ordered = _interleave_pairs(tech_pages, plain_pages)
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f'<mxfile host="app.diagrams.net" modified="{now}" '
+        f'agent="daemonstrate" version="24.0.0">\n'
+        + '\n'.join(ordered)
+        + '\n</mxfile>\n'
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", help="Path to spec JSON (default: stdin)")
@@ -1643,14 +1803,26 @@ def main() -> int:
             LAYER_SHORT[ln] = ln[:2]
 
     emitted = 0
+    paired = _has_plain_labels(spec)
+    audience_first = spec.get("audience_first", "technical")
+    if audience_first not in ("technical", "plain"):
+        audience_first = "technical"
+    plain_spec = _to_plain_spec(spec) if paired else None
 
     def emit(out_path: str | None, builder, label: str) -> None:
         nonlocal emitted
         if not out_path:
             return
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(out_path).write_text(builder(spec), encoding="utf-8")
-        print(f"{label:<10} {out_path}")
+        if paired:
+            tech_xml = builder(spec)
+            plain_xml = builder(plain_spec)
+            output = _combine_paired_mxfiles(tech_xml, plain_xml, audience_first)
+        else:
+            output = builder(spec)
+        Path(out_path).write_text(output, encoding="utf-8")
+        suffix = " (paired T+P)" if paired else ""
+        print(f"{label:<10} {out_path}{suffix}")
         emitted += 1
 
     emit(args.out_portfolio, build_portfolio, "portfolio:")
