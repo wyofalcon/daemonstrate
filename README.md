@@ -1,6 +1,6 @@
 # Daemonstrate
 
-A [Claude Code](https://claude.ai/code) skill that generates two polished, dark-themed `.drawio` architecture diagrams for any codebase — and keeps them current via an optional post-commit hook.
+A [Claude Code](https://claude.ai/code) skill that generates polished, light-theme `.drawio` architecture diagrams for any codebase — and keeps them current via an optional post-commit hook.
 
 ```
 /daemonstrate
@@ -10,14 +10,13 @@ A [Claude Code](https://claude.ai/code) skill that generates two polished, dark-
 
 ## What it produces
 
-| File | Audience | Contents |
-|---|---|---|
-| `docs/architecture-portfolio.drawio` | Recruiters, stakeholders | Swimlanes, tech badges, capability pills, headline data flows. Scannable in ~10 seconds. |
-| `docs/architecture-detailed.drawio` | Collaborators, AI agents | Routes, services, tables, jobs, integrations, cross-layer edges with labels. |
+| File | Pages | Audience | Contents |
+|---|---|---|---|
+| `docs/architecture-portfolio.drawio` | 1 | Recruiters, stakeholders | Single-page poster. Dashed pastel container per layer with capability pills + tech badges. Headline data flows. Scannable in ~10 seconds. |
+| `docs/architecture-detailed.drawio` | 1 + N | Collaborators, AI agents | Multi-page drill-down. Overview page (lane headers + tech badges + headline node teasers) + one detail page per layer (full key-nodes grid + internal edges + clickable "Connects to" sidebar). |
+| `docs/architecture-journey.drawio` *(opt-in)* | 1 | Family, non-technical reviewers, end users | Single-page vertical user-flow spine. User actions on the left, app actions on the right, numbered badges down the middle. Hover any step for the rich detail (description / what you'll see / tips). |
 
-For projects with a `user_flow` / `phases` spec, the portfolio becomes a **multi-page interactive flow**: an overview → phase pages → step detail pages, each with clickable navigation.
-
-Both diagrams share the same swimlane skeleton and color palette so readers can switch between them without getting lost. GitHub renders `.drawio` files inline when a companion `.svg` export exists.
+All three diagrams use the same visual language — dashed pastel group containers, orthogonal labeled edges, dark text on white, drop shadows. Modeled after a clean architecture flowchart, so a reader switching between them never has to re-orient. GitHub renders `.drawio` files inline when a companion `.svg` export exists.
 
 ---
 
@@ -46,8 +45,10 @@ That's it. Claude will detect your stack, classify layers, explore the codebase,
 1. Detect tech stack      package.json, pyproject.toml, go.mod, Cargo.toml, …
 2. Classify layers        Frontend / Mobile / Backend / Data / Jobs / Integrations / Infra
 3. Explore each layer     Glob + Grep to find routes, services, tables, jobs
-4. Generate graph spec    Intermediate JSON describing both diagrams
-5. Run drawio_builder.py  Emits valid .drawio XML for portfolio + detailed
+4. Generate graph spec    Intermediate JSON describing all diagrams
+5. Run drawio_builder.py  Emits valid .drawio XML — single-page portfolio,
+                          multi-page detailed (overview + 1 page per layer),
+                          and (optionally) single-page journey.
 6. Write state sidecar    .daemonstrate-state.json tracks lastSha for incremental runs
 ```
 
@@ -57,7 +58,7 @@ On subsequent runs, only layers whose files changed since `lastSha` are re-explo
 
 ## Customizing with a graph spec
 
-Drop a `docs/graph-spec.json` in your repo to drive the diagrams directly — useful when you want a curated user journey instead of (or alongside) the auto-detected architecture.
+Drop a `docs/graph-spec.json` in your repo to drive the diagrams directly — useful when you want a curated story instead of (or alongside) the auto-detected architecture.
 
 ### Minimal spec
 
@@ -82,30 +83,23 @@ Drop a `docs/graph-spec.json` in your repo to drive the diagrams directly — us
 }
 ```
 
-### User-journey spec (portfolio only)
+### Adding the journey diagram
 
-Add `user_flow` and `phases` to get the multi-page interactive flow:
+Add a `user_flow` array (and run with `--out-journey`) to also produce the single-page user-journey spine:
 
 ```json
 {
   "title": "My Project",
   "subtitle": "One-line pitch",
-  "phases": [
-    {
-      "id": "capture",
-      "label": "Capture",
-      "tagline": "Grab it before you forget",
-      "accent": "#89B4FA",
-      "step_ids": ["uf-spot", "uf-hotkey", "uf-popup"]
-    }
-  ],
+  "layers": [...],
+
   "user_flow": [
     {
       "id": "uf-spot",
       "actor": "user",
-      "label": "You spot something worth capturing",
+      "label": "Spot it",
       "detail": "a bug, idea, or design problem",
-      "description": "Longer description shown on the step detail page.",
+      "description": "Longer explanation, surfaced as a hover tooltip.",
       "what_you_see": "What the UI looks like at this moment.",
       "tips": ["Tip one", "Tip two"]
     }
@@ -113,7 +107,7 @@ Add `user_flow` and `phases` to get the multi-page interactive flow:
 }
 ```
 
-`actor` is either `"user"` (blue) or `"app"` (green). Steps link to each other and back to their phase automatically.
+`actor` is either `"user"` (renders left, sky blue) or `"app"` (renders right, mint green). The rich `description` / `what_you_see` / `tips` fields all merge into the step's hover tooltip so the page stays scannable.
 
 ---
 
@@ -125,7 +119,8 @@ Add `user_flow` and `phases` to get the multi-page interactive flow:
 python scripts/drawio_builder.py \
   --spec docs/graph-spec.json \
   --out-portfolio docs/architecture-portfolio.drawio \
-  --out-detailed  docs/architecture-detailed.drawio
+  --out-detailed  docs/architecture-detailed.drawio \
+  --out-journey   docs/architecture-journey.drawio   # optional
 ```
 
 Pipe a spec from stdin:
@@ -140,7 +135,7 @@ echo '{"title":"Demo","layers":[...]}' | python scripts/drawio_builder.py \
 
 ## Color palette
 
-Catppuccin-Mocha-inspired, tuned for readability in GitHub dark mode and diagrams.net.
+Catppuccin-inspired accents on a white canvas. Each accent renders as a pastel fill (22% accent + 78% white) for containers and nodes, with the saturated accent for borders, badges, and capability pills.
 
 | Layer | Accent |
 |---|---|
@@ -151,6 +146,8 @@ Catppuccin-Mocha-inspired, tuned for readability in GitHub dark mode and diagram
 | Jobs / Workers | `#FAB387` peach |
 | Integrations | `#F38BA8` rose |
 | Infra | `#CBA6F7` lavender |
+
+Full palette + contrast rules in `references/light-theme-palette.md`.
 
 ---
 

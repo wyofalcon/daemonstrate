@@ -49,8 +49,8 @@ This is the JSON contract a layer-explorer subagent must return. The main agent 
 | Field | Required | Purpose |
 |---|---|---|
 | `layer_name` | yes | Machine id. Lowercase, no spaces. Used as a prefix for cell IDs. |
-| `display_name` | yes | Human-readable title shown on the swimlane. |
-| `accent` | yes | Hex from `dark-theme-palette.md`. |
+| `display_name` | yes | Human-readable title shown on the group container header (uppercased). |
+| `accent` | yes | Hex from `light-theme-palette.md`. |
 | `tech_badges` | yes | 1-5 short strings. Shown as pills on the lane. |
 | `capabilities` | yes | 3-6 **user-facing** capability phrases. These populate the **portfolio** diagram. Keep under 5 words each. |
 | `key_nodes` | yes | 6-12 structural nodes for the **detailed** diagram. |
