@@ -1,0 +1,12 @@
+{
+  "skill_name": "daemonstrate",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "noteXT-first-run",
+      "prompt": "You are in the NoteXT repository at C:/Users/Wyofa/projects/NoteXT. Produce two attractive dark-themed draw.io architecture diagrams for this project: one portfolio-friendly (for recruiters, scannable in ~10 seconds), and one detailed (for collaborators or AI onboarding, showing layers, routes, jobs, integrations, and data). Swimlane-organized, tech stack badges, capability highlights. Save them under the output directory you were given. Also write a .daemonstrate-state.json sidecar so a future incremental run can diff.",
+      "expected_output": "Two valid .drawio XML files + a state JSON. Portfolio is coarse (capability pills, tech badges). Detailed has 6+ layers with key nodes, files, and cross-layer edges.",
+      "files": []
+    }
+  ]
+}
