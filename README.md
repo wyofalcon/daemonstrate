@@ -22,18 +22,20 @@ All three diagrams use the same visual language — dashed pastel group containe
 
 ## Installation
 
-Daemonstrate is a Claude Code skill. Clone this repo into your skills directory:
+Daemonstrate is a Claude Code plugin that bundles the `daemonstrate` skill.
 
 ```bash
-# Claude Code looks for skills in ~/.claude/skills/ by default
-git clone https://github.com/wyofalcon/daemonstrate ~/.claude/skills/daemonstrate
+git clone https://github.com/wyofalcon/daemonstrate ~/plugins/daemonstrate
+claude --plugin-dir ~/plugins/daemonstrate
 ```
 
 Then in Claude Code, invoke it:
 
 ```
-/daemonstrate
+/daemonstrate:daemonstrate
 ```
+
+(Or simply `/daemonstrate` if no other skill shadows the name.)
 
 That's it. Claude will detect your stack, classify layers, explore the codebase, and write both diagrams into `docs/`.
 
