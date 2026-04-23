@@ -20,6 +20,20 @@ All three diagrams use the same visual language — dashed pastel group containe
 
 ---
 
+## When is this worth the tokens?
+
+First run on a fresh repo is the expensive one — scope discovery, per-scope exploration, and Plain-English translation of every label all happen once. Incremental runs (driven by the post-commit hook) are much cheaper: three-level caching means most commits only re-explore the scopes whose files changed and re-translate a handful of labels.
+
+The cost earns its keep when:
+
+- **You're onboarding a collaborator.** Drop them into `architecture-detailed.drawio` and let the diagram carry the context you'd otherwise spend most of a meeting explaining.
+- **You're sharing with a non-technical stakeholder.** The Plain-English tab renders *"the website asks the server to save a note"* instead of `POST /api/notes` — no separate deck to maintain, no translation drift.
+- **You think visually.** The diagrams become external working memory; teaching-mode drill-down lets you zoom into whichever part of the system you're currently reasoning about, on demand.
+
+If none of those apply, a one-time hand-drawn diagram is probably the better call. See [ROADMAP.md](./ROADMAP.md) for work in flight around *opportunistic* generation — deferring the expensive passes to session windows where the tokens would otherwise go unused.
+
+---
+
 ## Installation
 
 Daemonstrate is a Claude Code skill. Clone this repo into your skills directory:
